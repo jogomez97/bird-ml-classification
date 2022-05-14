@@ -5,7 +5,6 @@ import shutil
 from datetime import datetime
 
 import tensorflow as tf
-from sklearn.metrics import classification_report
 from sklearn.preprocessing import LabelBinarizer
 from tensorflow.keras.applications.mobilenet_v2 import MobileNetV2
 from tensorflow.keras.callbacks import ModelCheckpoint
@@ -42,15 +41,15 @@ def train_mobilenet(args, output_path):
     )
 
     if args.test_split > 0:
-        trainX, trainY, valX, valY, testX, testY = data_loader.load_and_split()
+        train_x, train_y, val_x, val_y, test_x, test_y = data_loader.load_and_split()
     else:
-        trainX, trainY, valX, valY = data_loader.load_and_split()
+        train_x, train_y, val_x, val_y = data_loader.load_and_split()
 
     # convert the labels from integers to vectors
-    trainY = LabelBinarizer().fit_transform(trainY)
-    valY = LabelBinarizer().fit_transform(valY)
+    train_y = LabelBinarizer().fit_transform(train_y)
+    val_y = LabelBinarizer().fit_transform(val_y)
     if args.test_split > 0:
-        testY = LabelBinarizer().fit_transform(testY)
+        test_y = LabelBinarizer().fit_transform(test_y)
 
     # load the pre-trained network, ensuring the head FC layer sets are left off (include_top=False)
     print("[INFO] loading model...")
@@ -86,9 +85,9 @@ def train_mobilenet(args, output_path):
     # typical warmup are 10-30 epoch
     print("[INFO] training head...")
     history = model.fit(
-        trainX,
-        trainY,
-        validation_data=(valX, valY),
+        train_x,
+        train_y,
+        validation_data=(val_x, val_y),
         epochs=5,
         batch_size=args.batch_size,
         verbose=1,
@@ -123,9 +122,9 @@ def train_mobilenet(args, output_path):
     # of CONV layers along with our set of FC layers
     print("[INFO] fine-tuning model...")
     history = model.fit(
-        trainX,
-        trainY,
-        validation_data=(valX, valY),
+        train_x,
+        train_y,
+        validation_data=(val_x, val_y),
         epochs=5,
         batch_size=args.batch_size,
         verbose=1,
@@ -138,15 +137,6 @@ def train_mobilenet(args, output_path):
     with open(os.path.join(output_path, "history_training.json"), "w") as outfile:
         json.dump(history.history, outfile)
         outfile.close()
-
-    # evaluate the network on the fine-tuned model
-    print("[INFO] evaluating after fine-tuning...")
-    predictions = model.predict(testX, batch_size=args.batch_size)
-    print(
-        classification_report(
-            testY.argmax(axis=1), predictions.argmax(axis=1), target_names=class_names
-        )
-    )
 
 
 if __name__ == "__main__":
