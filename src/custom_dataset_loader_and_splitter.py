@@ -5,10 +5,11 @@ import random
 
 
 class CustomDatasetLoaderAndSplitter:
-    def __init__(self, input_path, validation=0.25, test=0, verbose=False):
+    def __init__(self, input_path, validation=0.25, test=0, seed=-1, verbose=False):
         self.input = input_path
         self.validation = validation
         self.test = test
+        self.seed = seed
         self.verbose = verbose
 
         if self.validation < 0 or self.validation > 1:
@@ -20,12 +21,13 @@ class CustomDatasetLoaderAndSplitter:
         if self.train_split < 0:
             raise ValueError("Error, validation and test can't add to more than 1")
 
-        print(
-            "Input split: train {}%, validation {}%, test {}%".format(
-                self.train_split * 100, self.validation * 100, self.test * 100
-            )
-        )
         if self.verbose:
+            print(
+                "Input split: train {}%, validation {}%, test {}%".format(
+                    self.train_split * 100, self.validation * 100, self.test * 100
+                )
+            )
+
             print("===== Dataset =====")
 
     def __split(self):
@@ -55,11 +57,12 @@ class CustomDatasetLoaderAndSplitter:
         for d, folder in cuts_per_file.items():
 
             successfull = False
-            s = 0
             while not successfull:
-                folder = list(folder.items())
-                random.shuffle(folder)
-                folder = dict(folder)
+                # we want a base case where we don't shuffle the dataset
+                if self.seed != -1:
+                    folder = list(folder.items())
+                    random.shuffle(folder)
+                    folder = dict(folder)
 
                 if self.verbose:
                     print(d)
@@ -97,7 +100,7 @@ class CustomDatasetLoaderAndSplitter:
                 real_train_split = p_total * 100
 
                 # if we found a good permutation of files continue, otherwise shuffle again
-                if real_train_split > 77:
+                if real_train_split > self.train_split - 3:
                     successfull = True
 
             # If no test needs to be added, the remaining data is validation itself
