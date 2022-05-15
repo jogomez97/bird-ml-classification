@@ -3,9 +3,12 @@ import json
 import os
 import shutil
 from datetime import datetime
+from typing import Tuple
 
 from sklearn.preprocessing import LabelBinarizer
 from tensorflow.keras.applications.mobilenet_v2 import MobileNetV2
+from tensorflow.keras.applications.resnet50 import ResNet50
+from tensorflow.keras.applications.vgg16 import VGG16
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 from tensorflow.keras.models import Model
 from tensorflow.keras.optimizers import SGD, RMSprop
@@ -15,16 +18,21 @@ from data_generator import DataGenerator
 from fcheadnet import FCHeadNet
 
 
-def build_output_folder(clear_output) -> str:
+def build_output_folder(model_name, clear_output) -> str:
     if clear_output and os.path.exists("models"):
         shutil.rmtree("models")
 
     if not os.path.exists("models"):
         os.mkdir("models")
 
-    now = datetime.now().strftime("%y-%m-%dT%H%M")
-    output_path = os.path.join("models", f"train-{now}")
+    # create models/model_name folder
+    output_path = os.path.join("models", model_name)
+    if not os.path.exists(output_path):
+        os.mkdir(output_path)
 
+    # create models/model_name/execution folder
+    now = datetime.now().strftime("%y-%m-%dT%H%M")
+    output_path = os.path.join(output_path, f"train-{now}")
     if os.path.exists(output_path):
         shutil.rmtree(output_path)
 
@@ -32,9 +40,8 @@ def build_output_folder(clear_output) -> str:
     return output_path
 
 
-def train_mobilenet(args, output_path):
+def load_dataset(args, class_names):
     # load the images and get the splits
-    class_names = list(os.listdir(args.dataset_path))
     data_loader = CustomDatasetLoaderAndSplitter(
         args.dataset_path,
         validation=args.validation_split,
@@ -56,16 +63,33 @@ def train_mobilenet(args, output_path):
     train_gen = DataGenerator(train_x, train_y, args.batch_size)
     val_gen = DataGenerator(val_x, val_y, args.batch_size)
 
-    # set up test data if needed
+    # set up and return test data if needed
     if args.test_split > 0:
         test_y = LabelBinarizer().fit_transform(test_y)
         test_gen = DataGenerator(test_x, test_y, args.batch_size)
+        return train_gen, val_gen, test_gen
 
+    return train_gen, val_gen
+
+
+def load_model(model_name, class_names) -> Tuple[Model, Model]:
     # load the pre-trained network, ensuring the head FC layer sets are left off (include_top=False)
     print("[INFO] loading model...")
-    base_model = MobileNetV2(
-        weights="imagenet", include_top=False, input_shape=(224, 224, 3)
-    )
+
+    if model_name == "mobilenetv2":
+        base_model = MobileNetV2(
+            weights="imagenet", include_top=False, input_shape=(224, 224, 3)
+        )
+    elif model_name == "vgg16":
+        base_model = VGG16(
+            weights="imagenet", include_top=False, input_shape=(224, 224, 3)
+        )
+    elif model_name == "resnet50":
+        base_model = ResNet50(
+            weights="imagenet", include_top=False, input_shape=(224, 224, 3)
+        )
+    else:
+        raise NotImplementedError(f"{model_name} is not available for training")
 
     # initialize the new head of the network, a set of FC layers
     # followed by a softmax classifier
@@ -74,6 +98,19 @@ def train_mobilenet(args, output_path):
     # place the head FC model on top of the base model -- this will
     # become the actual model we will train
     model = Model(inputs=base_model.input, outputs=head_model)
+
+    return model, base_model
+
+
+def main(args, output_path):
+    class_names = list(os.listdir(args.dataset_path))
+
+    if args.test_split > 0:
+        train_gen, val_gen, test_gen = load_dataset(args, class_names)
+    else:
+        train_gen, val_gen = load_dataset(args, class_names)
+
+    model, base_model = load_model(args.model, class_names)
 
     # loop over all layers in the base model and freeze them so they
     # will *not* be updated during the training process
@@ -117,14 +154,14 @@ def train_mobilenet(args, output_path):
     opt = SGD(learning_rate=0.001)
     model.compile(loss="categorical_crossentropy", optimizer=opt, metrics=["accuracy"])
 
-    # checkpoint
+    # checkpoints
     filepath = os.path.join(
         output_path, "weights-improvement-{epoch:02d}-{val_accuracy:.2f}.h5"
     )
     checkpoint = ModelCheckpoint(
         filepath, monitor="val_accuracy", verbose=1, save_best_only=True, mode="max"
     )
-    early_stop_callback = EarlyStopping(monitor="val_loss", patience=5)
+    early_stop_callback = EarlyStopping(monitor="val_loss", patience=3)
     callbacks_list = [checkpoint, early_stop_callback]
 
     # train the model again, this time fine-tuning *both* the final set
@@ -189,8 +226,15 @@ if __name__ == "__main__":
         default=-1,
         help="Seed used to randomly split the dataset.",
     )
+    parser.add_argument(
+        "-m",
+        "--model",
+        choices=["vgg16", "resnet50", "mobilenetv2"],
+        default="mobilenetv2",
+        help="Model to be trained",
+    )
     args = parser.parse_args()
 
-    output_path = build_output_folder(args.clear_models)
+    output_path = build_output_folder(args.model, args.clear_models)
 
-    train_mobilenet(args, output_path)
+    main(args, output_path)
