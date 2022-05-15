@@ -23,8 +23,8 @@ def build_output_folder(clear_output) -> str:
     if not os.path.exists("models"):
         os.mkdir("models")
 
-    now = datetime.now().strftime("%y-%m-%dT%H:%M")
-    output_path = f"models/train-{now}"
+    now = datetime.now().strftime("%y-%m-%dT%H%M")
+    output_path = os.path.join("models", f"train-{now}")
 
     if os.path.exists(output_path):
         shutil.rmtree(output_path)
@@ -175,7 +175,6 @@ if __name__ == "__main__":
         help="Remove all subfolders in output models/ folder. Warning, this is not reversible!",
     )
     args = parser.parse_args()
-    print(args)
 
     output_path = build_output_folder(args.clear_models)
     train_mobilenet(args, output_path)
