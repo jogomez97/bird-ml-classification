@@ -10,15 +10,31 @@ Additionally, a model to recognize bird species through images is accomplished. 
 
 The audio dataset is published and accessible at: [Western Mediterranean Wetlands Bird Dataset](https://zenodo.org/record/5093173).
 
-## Folders
+## Set up the environment
 
-- [Scripts](scripts): has the main scripts used for the project. This includes transforming audio dataset to spectrograms, loss and accuracy evolution plotters or confusion matrix plotters among others.
-- [Transfer learning](transfer_learning): has all the scripts concerning training networks via fine-tuning (including early fusion).
-- [Models](models): all trained models from the project.
-  - [Audio models](models/audio): models trained using a spectrogram dataset using fine-tuning.
-    VGG16 image fine-tuning. VGG16 early fusion.
-  - [Image models](models/image): models trained with bird photos using fine-tuning.
-  - [Fusion models](models/fusion): models trained with both photos and spectrograms.
+1. Clone this repository into local
+2. Download the dataset.
+3. Create a virtual environment with `python3 -m venv venv` (python 3.8.x is strongly recommended)
+4. Activate the virtual environment with `source venv/bin/activate`
+5. Install dependencies with `pip install -r requirements.txt` (for M1 macOS, install `requirements-macos.txt`)
+
+Make sure that you have installed [the software pre-requisits](https://www.tensorflow.org/install/gpu#software_requirements) to run Tensorflow on a GPU. Check the trusted CUDA versions [here](https://www.tensorflow.org/install/source#tested_build_configurations).
+
+## Run
+
+It's important to have the environment correctly installed and activated. To run a single model training, execute `train.py` script with the appropiate arguments
+
+Example:
+```
+python src/train.py -p 'path_to_dataset' -m resnet50 -b 16
+```
+
+The script will create an output folder `models` where it will store logs and trained models.
+
+For help run from the base folder:
+```
+python src/train.py -h
+```
 
 ## List of bird species
 
