@@ -36,6 +36,14 @@ For help run from the base folder:
 python src/train.py -h
 ```
 
+## Run multiple trainings
+
+To run multiple trainings a `run.sh` example script is provided in `bin` folder. To execute it simply do:
+```
+cd bin/
+sh run.sh
+```
+
 ## List of bird species
 
 - Acrocephalus arundinaceus

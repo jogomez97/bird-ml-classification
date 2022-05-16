@@ -136,7 +136,7 @@ def main(args, output_path):
     history = model.fit(
         train_gen,
         validation_data=val_gen,
-        epochs=1,
+        epochs=20,
         verbose=1,
     )
 
@@ -150,7 +150,11 @@ def main(args, output_path):
         layer.trainable = True
 
     print("[INFO] re-compiling model...")
-    opt = RMSprop(learning_rate=0.001)
+    lr = 0.001
+    if args.model == "vgg16":
+        lr = 0.0001
+
+    opt = SGD(learning_rate=lr)
     model.compile(loss="categorical_crossentropy", optimizer=opt, metrics=["accuracy"])
 
     # checkpoints
