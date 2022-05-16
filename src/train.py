@@ -12,10 +12,12 @@ from tensorflow.keras.applications.vgg16 import VGG16
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 from tensorflow.keras.models import Model
 from tensorflow.keras.optimizers import SGD, RMSprop
+import tensorflow as tf
 
 from custom_dataset_loader_and_splitter import CustomDatasetLoaderAndSplitter
 from data_generator import DataGenerator
 from fcheadnet import FCHeadNet
+from timing_callback import TimingCallback
 
 
 def build_output_folder(model_name, clear_output) -> str:
@@ -32,7 +34,7 @@ def build_output_folder(model_name, clear_output) -> str:
 
     # create models/model_name/execution folder
     now = datetime.now().strftime("%y-%m-%dT%H%M")
-    output_path = os.path.join(output_path, f"train-{now}")
+    output_path = os.path.join(output_path, f"{now}")
     if os.path.exists(output_path):
         shutil.rmtree(output_path)
 
@@ -134,7 +136,7 @@ def main(args, output_path):
     history = model.fit(
         train_gen,
         validation_data=val_gen,
-        epochs=20,
+        epochs=1,
         verbose=1,
     )
 
@@ -143,15 +145,12 @@ def main(args, output_path):
         json.dump(history.history, outfile)
         outfile.close()
 
-    # now that the head FC layers have been trained/initialized, lets
-    # unfreeze the final set of CONV layers and make them trainable
-    for layer in base_model.layers[15:]:
+    # unfreeze all the layers for second phase training
+    for layer in model.layers:
         layer.trainable = True
 
-    # for the changes to the model to take affect we need to recompile
-    # the model, this time using SGD with a *very* small learning rate
     print("[INFO] re-compiling model...")
-    opt = SGD(learning_rate=0.001)
+    opt = RMSprop(learning_rate=0.001)
     model.compile(loss="categorical_crossentropy", optimizer=opt, metrics=["accuracy"])
 
     # checkpoints
@@ -162,7 +161,8 @@ def main(args, output_path):
         filepath, monitor="val_accuracy", verbose=1, save_best_only=True, mode="max"
     )
     early_stop_callback = EarlyStopping(monitor="val_loss", patience=3)
-    callbacks_list = [checkpoint, early_stop_callback]
+    timing_callback = TimingCallback()
+    callbacks_list = [checkpoint, early_stop_callback, timing_callback]
 
     # train the model again, this time fine-tuning *both* the final set
     # of CONV layers along with our set of FC layers
@@ -179,6 +179,7 @@ def main(args, output_path):
     print("[INFO] serializing model...")
     model.save(os.path.join(output_path, args.output_model))
     with open(os.path.join(output_path, "history_training.json"), "w") as outfile:
+        history.history["train_time"] = timing_callback.logs
         json.dump(history.history, outfile)
         outfile.close()
 
