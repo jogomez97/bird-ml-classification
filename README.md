@@ -25,6 +25,7 @@ Make sure that you have installed [the software pre-requisits](https://www.tenso
 It's important to have the environment correctly installed and activated. To run a single model training, execute `train.py` script with the appropiate arguments
 
 Example:
+
 ```
 python src/train.py -p 'path_to_dataset' -m resnet50 -b 16
 ```
@@ -32,6 +33,7 @@ python src/train.py -p 'path_to_dataset' -m resnet50 -b 16
 The script will create an output folder `models` where it will store logs and trained models.
 
 For help run from the base folder:
+
 ```
 python src/train.py -h
 ```
@@ -39,10 +41,15 @@ python src/train.py -h
 ## Run multiple trainings
 
 To run multiple trainings a `run.sh` example script is provided in `bin` folder. To execute it simply do:
+
 ```
 cd bin/
 sh run.sh
 ```
+
+## Get model scores
+
+This repository includes a `get_model_scores.py` script that allows to test the all the models trained with `run.sh` at once and get accuracy, recall, precision and F1-scores in a CSV file.
 
 ## List of bird species
 
