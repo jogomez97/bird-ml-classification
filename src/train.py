@@ -4,14 +4,15 @@ import os
 import shutil
 from datetime import datetime
 from typing import Tuple
+from tensorflow import keras
 
 from sklearn.preprocessing import LabelBinarizer
-from tensorflow.keras.applications.mobilenet_v2 import MobileNetV2
-from tensorflow.keras.applications.resnet50 import ResNet50
-from tensorflow.keras.applications.vgg16 import VGG16
+
+
+from tensorflow.keras.applications import *
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 from tensorflow.keras.models import Model
-from tensorflow.keras.optimizers import SGD, RMSprop
+from tensorflow.keras.optimizers import SGD, RMSprop, Adam, Adadelta
 import tensorflow as tf
 
 from custom_dataset_loader_and_splitter import CustomDatasetLoaderAndSplitter
@@ -20,7 +21,7 @@ from fcheadnet import FCHeadNet
 from timing_callback import TimingCallback
 
 
-def build_output_folder(model_name, clear_output) -> str:
+def build_output_folder(model_name, clear_output):
     if clear_output and os.path.exists("models"):
         shutil.rmtree("models")
 
@@ -90,6 +91,14 @@ def load_model(model_name, class_names) -> Tuple[Model, Model]:
         base_model = ResNet50(
             weights="imagenet", include_top=False, input_shape=(224, 224, 3)
         )
+    elif model_name == "efficientnetb0":
+        base_model = EfficientNetB0(
+            include_top=False, weights="imagenet", input_shape=(224, 224, 3)
+        )
+    elif model_name == "efficientnetb7":
+        base_model = EfficientNetB7(
+            include_top=False, weights="imagenet", input_shape=(224, 224, 3)
+        )
     else:
         raise NotImplementedError(f"{model_name} is not available for training")
 
@@ -124,7 +133,16 @@ def main(args, output_path):
     # compile our model (this needs to be done after our setting our
     # layers to being non-trainable
     print("[INFO] compiling model...")
-    opt = RMSprop(learning_rate=0.001)
+
+    if args.model == "mobilenetv2" or args.model == "resnet50":
+        num_epochs = 20
+        opt = RMSprop(learning_rate=0.001)
+    elif args.model == "vgg16":
+        num_epochs = 400
+        opt = SGD(learning_rate=0.001)
+    else:
+        num_epochs = 100
+        opt = SGD(learning_rate=0.001)
     model.compile(loss="categorical_crossentropy", optimizer=opt, metrics=["accuracy"])
 
     # train the head of the network for a few epochs (all other
@@ -132,52 +150,65 @@ def main(args, output_path):
     # start to become initialized with actual "learned" values
     # versus pure random
     # typical warmup are 10-30 epoch
+
+    early_stop_callback = EarlyStopping(monitor="val_loss", patience=20)
+    timing_callback = TimingCallback()
+    callbacks_list = [early_stop_callback, timing_callback]
     print("[INFO] training head...")
     history = model.fit(
         train_gen,
         validation_data=val_gen,
-        epochs=20,
+        epochs=num_epochs,
         verbose=1,
+        callbacks=callbacks_list,
     )
 
     model.save(os.path.join(output_path, "warmup.h5"))
     with open(os.path.join(output_path, "history_warmup.json"), "w") as outfile:
+        history.history["train_time"] = timing_callback.logs
         json.dump(history.history, outfile)
         outfile.close()
 
-    # unfreeze all the layers for second phase training
-    for layer in model.layers:
-        layer.trainable = True
+    if args.model == "mobilenetv2" or args.model == "resnet50":
+        # unfreeze all the layers for second phase training
+        for layer in model.layers:
+            layer.trainable = True
 
-    print("[INFO] re-compiling model...")
-    lr = 0.001
-    if args.model == "vgg16":
+        print("[INFO] re-compiling model...")
         lr = 0.0001
 
-    opt = SGD(learning_rate=lr)
-    model.compile(loss="categorical_crossentropy", optimizer=opt, metrics=["accuracy"])
+        if args.optimizer == "SGD":
+            opt = SGD(learning_rate=lr)
+        elif args.optimizer == "ADAM":
+            opt = Adam(learning_rate=lr)
+        elif args.optimizer == "RMSprop":
+            opt = RMSprop(learning_rate=lr)
 
-    # checkpoints
-    filepath = os.path.join(
-        output_path, "weights-improvement-{epoch:02d}-{val_accuracy:.2f}.h5"
-    )
-    checkpoint = ModelCheckpoint(
-        filepath, monitor="val_accuracy", verbose=1, save_best_only=True, mode="max"
-    )
-    early_stop_callback = EarlyStopping(monitor="val_loss", patience=3)
-    timing_callback = TimingCallback()
-    callbacks_list = [checkpoint, early_stop_callback, timing_callback]
+        model.compile(
+            loss="categorical_crossentropy", optimizer=opt, metrics=["accuracy"]
+        )
 
-    # train the model again, this time fine-tuning *both* the final set
-    # of CONV layers along with our set of FC layers
-    print("[INFO] fine-tuning model...")
-    history = model.fit(
-        train_gen,
-        validation_data=val_gen,
-        epochs=50,
-        verbose=1,
-        callbacks=callbacks_list,
-    )
+        # checkpoints
+        filepath = os.path.join(
+            output_path, "weights-improvement-{epoch:02d}-{val_accuracy:.2f}.h5"
+        )
+        checkpoint = ModelCheckpoint(
+            filepath, monitor="val_accuracy", verbose=1, save_best_only=True, mode="max"
+        )
+        early_stop_callback = EarlyStopping(monitor="val_loss", patience=3)
+        timing_callback = TimingCallback()
+        callbacks_list = [checkpoint, early_stop_callback, timing_callback]
+
+        # train the model again, this time fine-tuning *both* the final set
+        # of CONV layers along with our set of FC layers
+        print("[INFO] fine-tuning model...")
+        history = model.fit(
+            train_gen,
+            validation_data=val_gen,
+            epochs=50,
+            verbose=1,
+            callbacks=callbacks_list,
+        )
 
     # save the model to disk
     print("[INFO] serializing model...")
@@ -234,9 +265,22 @@ if __name__ == "__main__":
     parser.add_argument(
         "-m",
         "--model",
-        choices=["vgg16", "resnet50", "mobilenetv2"],
+        choices=[
+            "vgg16",
+            "resnet50",
+            "mobilenetv2",
+            "efficientnetb0",
+            "efficientnetb7",
+        ],
         default="mobilenetv2",
         help="Model to be trained",
+    )
+    parser.add_argument(
+        "-op",
+        "--optimizer",
+        choices=["SGD", "ADAM", "RMSprop"],
+        default="SGD",
+        help="Optimizer to train the model",
     )
     args = parser.parse_args()
 
